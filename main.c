@@ -207,7 +207,7 @@ int default_log(void *ctx, enum ducq_log_level level,  const char *fmt, ...) {
 
 int main(int argc, char const *argv[]) {
 	ducq_i *ducq                  = NULL;
-	struct client_config   conf   = {};
+	struct client_config   conf   = {.argc = argc, .argv = argv};
 	struct ducq_listen_ctx client = {};
 
 	get_config(argc, argv, &conf);
