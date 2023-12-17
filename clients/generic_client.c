@@ -11,13 +11,13 @@ int on_message(ducq_i *ducq, char *msg, size_t size, void *ctx) {
 }
 int on_protocol(ducq_i *ducq, char *msg, size_t size, void *ctx) {
 	printf(FG_LITE_BLACK);
-	printf("\033[90m%.*s\033[39m\n", (int)size, msg);
+	printf("%.*s\n", (int)size, msg);
 	printf(FG_NORMAL);
 	return 0;
 }
 int on_error(ducq_i *ducq, char *msg, size_t size, void *ctx) {
 	printf(FG_LITE_RED);
-	printf("\033[91m%.*s\033[39m\n", (int)size, msg);
+	printf("%.*s\n", (int)size, msg);
 	printf(FG_NORMAL);
 	return  -1;  
 }
