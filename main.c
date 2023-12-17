@@ -5,65 +5,29 @@
 #include <setjmp.h>
 #include <stdarg.h>
 #include <errno.h>
+#include <ctype.h> 
+
+#include <unistd.h> // pid(), daemon(), sleep()
+#include <limits.h> // PATH_MAX
 
 #include <ducq.h>
+#include <ducq_log.h>
 #include <ducq_tcp.h>
 
+#include <lua.h>
+#include <lauxlib.h>
 
-const char *prog    = NULL;
-const char *host    = NULL;
-const char *port    = NULL;
-const char *command = NULL;
-const char *route   = NULL;
-const char *payload = NULL;
-char payload_buffer[DUCQ_MSGSZ] = "";
-
-ducq_i *ducq;
+#include "ducq_client.h"
 
 
+// global: used in signal handler
 jmp_buf quit;
-
-void stop_signal(int sig) {
-	fprintf(stderr, "received %d\n", sig);
-
-	if(sig == SIGINT)
-		longjmp(quit, -1);
-};
-
-
-void set_signals() {
-	if(signal(SIGINT, stop_signal) == SIG_ERR) {
-		fprintf(stderr, "signal() failed: %s\n", strerror(errno));
-		exit(EXIT_FAILURE);
-	}
-	if(signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
-		fprintf(stderr, "signal() failed: %s\n", strerror(errno));
-		exit(EXIT_FAILURE);
-	}
-}
-
-
-void print_help() {
-	fprintf(stderr, 
-		"ducq \n"
-		"    -h,  --host       server host address (default: localhost )\n"
-		"    -p,  --port       server port         (default: 9090 )\n"
-		"    -c,  --command    mandatory. use 'list_commands' to get servers's available commands.\n"
-		"    -r,  --route      route to publish to (default: '*')\n"
-		"    -l,  --payload    payload to be sent  (default: '\\0' )\n"
-		"                      use '-' to read from stdin.\n"
-		"\n\n"
-	);
-	exit(EXIT_FAILURE);
-}
-
-
-void clean_quit() {
-	ducq_close(ducq);
-	ducq_free(ducq);
-	printf("all done.\n");
-	exit(EXIT_SUCCESS);
-}
+log_f logfunc 	= NULL;
+void *logger	= NULL;
+#define LOGD(fmt, ...) logfunc(logger, DUCQ_LOG_DEBUG,   fmt ,##__VA_ARGS__)
+#define LOGI(fmt, ...) logfunc(logger, DUCQ_LOG_INFO,    fmt ,##__VA_ARGS__)
+#define LOGW(fmt, ...) logfunc(logger, DUCQ_LOG_WARNING, fmt ,##__VA_ARGS__)
+#define LOGE(fmt, ...) logfunc(logger, DUCQ_LOG_ERROR,   fmt ,##__VA_ARGS__)
 
 void error_quit(const char *fmt, ...) {
 	va_list args;
@@ -75,93 +39,194 @@ void error_quit(const char *fmt, ...) {
 }
 
 
-void emit() {
+void exit_print_help() {
+	error_quit(
+		"ducq \n"
+		"    -h,  --host       server host address (default: localhost )\n"
+		"    -p,  --port       server port         (default: 9090 )\n"
+		"    -c,  --command    mandatory. use 'list_commands' to get servers's available commands.\n"
+		"    -r,  --route      route to publish to (default: '*')\n"
+		"    -l,  --payload    payload to be sent  (default: '\\0' )\n"
+		"\n\n"
+	);
+}
+
+
+
+void signal_handler(int sig) {
+	switch(sig) {
+		case SIGTERM:
+			LOGI("received SIGTERM");
+			longjmp(quit, -1);
+			break;
+		case SIGINT :
+			LOGI("received SIGINT");
+			longjmp(quit, -1);
+			break;
+		case  SIGQUIT:
+			LOGI("received SIGQUIT");
+			LOGI("becoming daemon");
+			if( daemon(0, 0) )
+				LOGE("daemon() failed: %s\n", strerror(errno));
+			else
+				LOGI("became daemon", getpid());
+			break;
+	}
+};
+
+void set_signals() {
+	if(signal(SIGTERM, signal_handler) == SIG_ERR
+	|| signal(SIGINT,  signal_handler) == SIG_ERR
+	|| signal(SIGQUIT, signal_handler) == SIG_ERR
+	|| signal(SIGPIPE, SIG_IGN       ) == SIG_ERR) {
+		error_quit("signal() failed: %s\n", strerror(errno));
+	}
+}
+
+static
+void log_error(const char *msg, ducq_state state) {
+	LOGE("%s: %s (%s)", msg, ducq_state_tostr(state), strerror(errno));
+}
+ducq_state emit(ducq_i **ducqptr, struct client_config *conf, struct ducq_listen_ctx *client) {
+	ducq_i *ducq     = NULL;
 	ducq_state state = DUCQ_OK;
 
-	ducq = ducq_new_tcp(host, port);
-	if(!ducq) error_quit("ducq_new_tcp() failed\n");
+	LOGI("%s:%s", conf->host, conf->port);
+	LOGI("'%s %s\n%s'", conf->command, conf->route, conf->payload);
 
-	state = ducq_conn(ducq);
-	if(state) error_quit("ducq_conn() failed: %s\n", ducq_state_tostr(state));
-
-	state = ducq_emit(ducq, command, route, payload, strlen(payload), false);
-	if(state) error_quit("ducq_emit() failed: %s\n", ducq_state_tostr(state));
-
-//	if(strcmp(command, "subscribe") != 0) {
-//		state = ducq_timeout(ducq, 5);
-//		if(state) error_quit("ducq_timeout() failed: %s\n", ducq_state_tostr(state));
-//	}
-}
-
-void parse_args(int argc, char const *argv[]) {
-	while( *(++argv) ) {
-		printf("argv: %s\n", *argv);
-		     if(strcmp(*argv, "--host")    == 0 || strcmp(*argv, "-h") == 0)
-			host = *(++argv);
-		else if(strcmp(*argv, "--port")    == 0 || strcmp(*argv, "-p") == 0)
-			port = *(++argv);
-		else if(strcmp(*argv, "--command") == 0 || strcmp(*argv, "-c") == 0)
-			command = *(++argv);
-		else if(strcmp(*argv, "--route")   == 0 || strcmp(*argv, "-r") == 0)
-			route = *(++argv);
-		else if(strcmp(*argv, "--payload") == 0 || strcmp(*argv, "-l") == 0)
-			payload = *(++argv);
+	if(ducq) {
+		ducq_close(ducq);
+		ducq_free(ducq);
 	}
-
-	if(!host)    host = getenv("DUCQ_HOST");
-	if(!port)    port = getenv("DUCQ_PORT");
-	if(!host)    host = "localhost";
-	if(!port)    port = "9090";
-	if(!command) print_help();
-	if(!route)   route   = "*";
-	if(!payload) payload = "";
-
-	if(*payload == '-') {
-		size_t size = DUCQ_MSGSZ - strlen(command) - strlen(route) - 4;  //' ' + '\n' + '\0' + receiver's '\0'
-		fread(payload_buffer, sizeof(char), size, stdin);
-		payload_buffer[DUCQ_MSGSZ] = '\0';
-		payload = payload_buffer;
+	ducq = ducq_new_tcp(conf->host, conf->port);
+	if(!ducq) {
+		log_error("ducq_new_tcp() failed", state);
+		longjmp(quit, -1);
 	}
+	*ducqptr = ducq;
 
-	printf("%s:%s\n'%s %s'\n%s\n\n",
-		host, port, command, route, payload
-	);
+	int try;
+	for(try = 0; try < 3; try++) {
+		LOGI("connection try #%d...", try+1);
+		sleep(try * 5);
 
-}
-
-
-
-
-int main(int argc, char const *argv[])
-{
-	if(argc == 1 || strcmp(argv[1], "--help") == 0) {
-		print_help();
-		exit(EXIT_FAILURE);
-	}
-
-	set_signals();
-	if( setjmp(quit) )
-		clean_quit();
-
-	parse_args(argc, argv);
-	emit();
-
-	
-	printf("---\n\n");
-
-	for(;;) {
-		ducq_state state     = DUCQ_OK;
-		char msg[DUCQ_MSGSZ] = "";
-		size_t len           = DUCQ_MSGSZ;
-
-		state = ducq_recv(ducq, msg, &len);
-		if(state != DUCQ_OK) {
-			printf("end: %s\n", ducq_state_tostr(state));
-			break;
+		ducq_close(ducq);
+		if( state = ducq_conn(ducq) ) {
+			log_error("ducq_conn() failed", state);
 		}
-		printf("%.*s\n", (int)len, msg);
+		else if( state = ducq_timeout(ducq, 60) ) {
+			log_error("ducq_timeout() failed", state);
+		}
+		else if( state = ducq_emit(ducq,
+			conf->command, conf->route,
+			conf->payload, strlen(conf->payload)
+		)) {
+			log_error("ducq_emit() failed", state);
+		}
+		else {
+			LOGI("listening");
+			if( state = ducq_listen(ducq, client) ) {
+				log_error("ducq_listen() failed", state);
+				if(state == DUCQ_ENOCMD) break;
+			}
+		}
 	}
 
-	printf("---\n");
-	clean_quit();
+	LOGI("done after %d tries", try);
+}
+
+
+
+void get_config(int argc, char const *argv[], struct client_config *c) {
+	if(argc > 1 && strcmp(argv[1], "--help") == 0) {
+		exit_print_help();
+	}
+
+	// defaults
+	c->host    = "localhost";
+	c->port    = "9090";
+	c->command = "list_commands";
+	c->route   = "*";
+	c->payload = "";
+
+	// Lua
+	lua_State *L = luaL_newstate();
+	static char path[PATH_MAX] = "";
+	snprintf(path, PATH_MAX, "%s/.config/ducq.lua", getenv("HOME"));
+	int error = luaL_loadfile(L, path) || lua_pcall(L, 0, 0, 0);
+	if(!error) {
+		static char host[256] = "";
+		static char port[  6] = "";
+		if( lua_getglobal(L, "host") == LUA_TSTRING ) {
+			strncpy(host, lua_tostring(L, -1), 256);
+			host[255] = '\0';
+			c->host = host;
+		}
+		if( lua_getglobal(L, "port") == LUA_TSTRING ) {
+			strncpy(port, lua_tostring(L, -1), 256);
+			port[5] = '\0';
+			c->port = port;
+		}
+	}
+	if(L) lua_close(L);
+
+	// args
+	while( *(++argv) ) {
+		     if(strcmp(*argv, "--host")    == 0 || strcmp(*argv, "-h") == 0)
+			c->host = *(++argv);
+		else if(strcmp(*argv, "--port")    == 0 || strcmp(*argv, "-p") == 0)
+			c->port = *(++argv);
+		else if(strcmp(*argv, "--command") == 0 || strcmp(*argv, "-c") == 0)
+			c->command = *(++argv);
+		else if(strcmp(*argv, "--route")   == 0 || strcmp(*argv, "-r") == 0)
+			c->route = *(++argv);
+		else if(strcmp(*argv, "--payload") == 0 || strcmp(*argv, "-l") == 0)
+			c->payload = *(++argv);
+	}
+}
+
+
+
+int default_log(void *ctx, enum ducq_log_level level,  const char *fmt, ...) {
+	FILE *file = (FILE*) ctx;
+
+	fprintf(file, "pid %d: ", getpid());
+	fprintf(file, "[%s]", ducq_level_tostr(level));
+
+	va_list args;
+	va_start(args, fmt);
+	vfprintf(file, fmt, args);
+	va_end(args);
+
+	fputc('\n', file);
+
+	return 0;
+}
+
+
+
+int main(int argc, char const *argv[]) {
+	ducq_i *ducq                  = NULL;
+	struct client_config   conf   = {};
+	struct ducq_listen_ctx client = {};
+
+	get_config(argc, argv, &conf);
+	if( initialize(&conf, &client) )
+		error_quit("client initialization failed.\n");
+
+	logfunc = conf.log    ? conf.log    : default_log;
+	logger  = conf.logger ? conf.logger : stdout;
+
+	if( setjmp(quit) )
+		goto done;
+	set_signals();
+
+	emit(&ducq, &conf, &client);
+
+done:
+	ducq_close(ducq);
+	ducq_free(ducq);
+	LOGI("finalizing.");
+	finalize(client.ctx);
+	return 0;
 }
