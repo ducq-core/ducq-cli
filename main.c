@@ -126,13 +126,16 @@ ducq_state emit(ducq_i **ducqptr, struct client_config *conf, struct ducq_listen
 		else {
 			LOGI("listening");
 			if( state = ducq_listen(ducq, client) ) {
+				if(state == DUCQ_OK)       break;
+				if(state == DUCQ_PROTOCOL) break;
+
 				log_error("ducq_listen() failed", state);
 				if(state == DUCQ_ENOCMD) break;
 			}
 		}
 	}
 
-	LOGI("done after %d tries", try);
+	LOGI("done after %d tries", try+1);
 }
 
 
@@ -209,6 +212,9 @@ int main(int argc, char const *argv[]) {
 	ducq_i *ducq                  = NULL;
 	struct client_config   conf   = {.argc = argc, .argv = argv};
 	struct ducq_listen_ctx client = {};
+
+	conf.log    = default_log;
+	conf.logger = stdout;
 
 	get_config(argc, argv, &conf);
 	if( initialize(&conf, &client) )
