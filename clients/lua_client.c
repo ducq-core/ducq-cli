@@ -58,9 +58,36 @@ int on_protocol(ducq_i *ducq, char *msg, size_t size, void *ctx) {
 	return callFunction(L, "onProtocol", ducq, msg, size);	
 }
 static
-int on_error(ducq_i *ducq, char *msg, size_t size, void *ctx) {
+int on_nack(ducq_i *ducq, char *msg, size_t size, void *ctx) {
 	lua_State *L = (lua_State *)ctx;
-	return callFunction(L, "onError", ducq, msg, size);	
+	return callFunction(L, "onNack", ducq, msg, size);
+}
+static
+int on_error(ducq_i *ducq, ducq_state state, void *ctx) {
+	lua_State *L = (lua_State *)ctx;
+	int ret = 0;
+
+	const char *fname = "onError";
+
+	lua_getglobal(L, fname);
+	ducq_push_ducq(L, ducq);
+	lua_pushnumber(L, state);
+
+	if( lua_pcall(L, 2, 1, 0) != LUA_OK ) {
+		LOGE("lua_pcall() failed for %s: %s\n",
+			fname, lua_tostring(L, -1));
+		ret =  -1;
+	}
+	else if( ! lua_isinteger(L, -1) ) {
+		LOGE("%s() did not return a integer.\n", fname);
+		ret = -1;
+	}
+	else {
+		ret = lua_tointeger(L, -1);
+	}
+
+	lua_pop(L, 1);
+	return ret;
 }
 static
 int lualog(void *ctx, enum ducq_log_level level, const char *fmt, ...) {
@@ -128,6 +155,7 @@ int initialize(struct client_config *config, struct ducq_listen_ctx *ctx){
 	ctx->ctx = L;
 	if(is_func(L, "onMessage" )) ctx->on_message  = on_message;
 	if(is_func(L, "onProtocol")) ctx->on_protocol = on_protocol;
+	if(is_func(L, "onNack"    )) ctx->on_nack     = on_nack;
 	if(is_func(L, "onError"   )) ctx->on_error    = on_error;
 	if(is_func(L, "log"       )) {
 		config->log    = lualog;

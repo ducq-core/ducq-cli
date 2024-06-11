@@ -83,59 +83,58 @@ void set_signals() {
 	}
 }
 
+
 static
 void log_error(const char *msg, ducq_state state) {
-	LOGE("%s: %s (%s)", msg, ducq_state_tostr(state), strerror(errno));
+	LOGE("%s: %s (errno: %s)", msg, ducq_state_tostr(state), strerror(errno));
 }
-ducq_state emit(ducq_i **ducqptr, struct client_config *conf, struct ducq_listen_ctx *client) {
-	ducq_i *ducq     = NULL;
-	ducq_state state = DUCQ_OK;
 
-	LOGI("%s:%s", conf->host, conf->port);
+#define ON_ERROR_GOTO_END(f) do { \
+	ducq_state state = f; \
+	if (state) { \
+		log_error(#f, state); \
+		goto end; \
+	} \
+} while(false)
+
+ducq_i *emit(struct client_config *conf, struct ducq_listen_ctx *client) {
+	LOGI("%s:%s",       conf->host,    conf->port);
 	LOGI("'%s %s\n%s'", conf->command, conf->route, conf->payload);
 
-	if(ducq) {
-		ducq_close(ducq);
-		ducq_free(ducq);
-	}
-	ducq = ducq_new_tcp(conf->host, conf->port);
+	ducq_i *ducq = ducq_new_tcp(conf->host, conf->port);
 	if(!ducq) {
-		log_error("ducq_new_tcp() failed", state);
+		LOGE("ducq_new_tcp() failed (errno: %s).", strerror(errno));
 		longjmp(quit, -1);
 	}
-	*ducqptr = ducq;
 
-	int try;
-	for(try = 0; try < 3; try++) {
-		LOGI("connection try #%d...", try+1);
-		sleep(try * 5);
+	int try = 0;
+	do {
+		try++;
+		LOGI("connection try #%d.", try);
+		if(try > 1) {
+			LOGI("backing of %d seconds...", try * 5);
+			sleep(try * 5);
+		}
 
 		ducq_close(ducq);
-		if( state = ducq_conn(ducq) ) {
-			log_error("ducq_conn() failed", state);
-		}
-		else if( state = ducq_timeout(ducq, 60) ) {
-			log_error("ducq_timeout() failed", state);
-		}
-		else if( state = ducq_emit(ducq,
+		ON_ERROR_GOTO_END( ducq_conn(ducq) );
+		ON_ERROR_GOTO_END( ducq_timeout(ducq, 60) );
+		ON_ERROR_GOTO_END( ducq_emit(ducq,
 			conf->command, conf->route,
 			conf->payload, strlen(conf->payload)
-		)) {
-			log_error("ducq_emit() failed", state);
-		}
-		else {
-			LOGI("listening");
-			if( state = ducq_listen(ducq, client) ) {
-				if(state == DUCQ_OK)       break;
-				if(state == DUCQ_PROTOCOL) break;
+		) );
 
-				log_error("ducq_listen() failed", state);
-				if(state == DUCQ_ENOCMD) break;
-			}
-		}
-	}
+		LOGI("listening");
+		ducq_state state = ducq_listen(ducq, client);
+		if(state < DUCQ_ERROR)
+			break;
+		log_error("ducq_listen() returned", state);
 
-	LOGI("done after %d tries", try+1);
+end:
+	} while(try < 3);
+
+	LOGI("done after try #%d.", try);
+	return ducq;
 }
 
 
@@ -209,7 +208,6 @@ int default_log(void *ctx, enum ducq_log_level level,  const char *fmt, ...) {
 
 
 int main(int argc, char const *argv[]) {
-	ducq_i *ducq                  = NULL;
 	struct client_config   conf   = {.argc = argc, .argv = argv};
 	struct ducq_listen_ctx client = {};
 
@@ -227,12 +225,13 @@ int main(int argc, char const *argv[]) {
 		goto done;
 	set_signals();
 
-	emit(&ducq, &conf, &client);
+	ducq_i *ducq = emit(&conf, &client);
 
 done:
 	ducq_close(ducq);
 	ducq_free(ducq);
-	LOGI("finalizing.");
+	LOGI("finalizing...");
 	finalize(client.ctx);
+	// don't call LOGx functions past finalize().
 	return 0;
 }

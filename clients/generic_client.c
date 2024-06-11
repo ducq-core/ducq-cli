@@ -27,7 +27,13 @@ int on_protocol(ducq_i *ducq, char *msg, size_t size, void *ctx) {
 	print(msg, size, FG_LITE_BLACK);
 	return 0;
 }
-int on_error(ducq_i *ducq, char *msg, size_t size, void *ctx) {
+int on_nack(ducq_i *ducq, char *msg, size_t size, void *ctx) {
+	print(msg, size, FG_LITE_YELLOW);
+	return -1;
+}
+int on_error(ducq_i *ducq, ducq_state state, void *ctx) {
+	const char *msg = ducq_state_tostr(state);
+	size_t size = strlen(msg);
 	print(msg, size, FG_LITE_RED);
 	return  -1;  
 }
@@ -37,6 +43,7 @@ int initialize(struct client_config *config, struct ducq_listen_ctx *ctx){
 
 	ctx->on_message  = on_message;
 	ctx->on_protocol = on_protocol;
+	ctx->on_nack     = on_nack;
 	ctx->on_error    = on_error;
 	ctx->ctx         = NULL;
 
