@@ -13,6 +13,7 @@ struct client_config {
 	const char  *payload;
 	log_f	     log;
 	void        *logger;
+	bool         silent;
 	int          argc;
 	char const **argv;
 };

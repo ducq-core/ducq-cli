@@ -133,13 +133,14 @@ int initialize(struct client_config *config, struct ducq_listen_ctx *ctx){
 		return -1;
 	}
 	luaL_openlibs(L);
+	lua_pushboolean(L, config->silent);
+	lua_setglobal(L, "silent");
 
 	const char *file = NULL;
 	const char **argv = config->argv;
 	while( *(++argv) ) {
 	     if(strcmp(*argv, "--file")    == 0 || strcmp(*argv, "-f") == 0) {
 		     file = *(++argv);
-		     break;
 	     }
 	}
 	if(!file) {

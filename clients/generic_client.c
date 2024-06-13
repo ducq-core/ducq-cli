@@ -6,6 +6,7 @@
 #include "../ducq_client.h" 	// implements
 
 static bool with_time = false;
+static bool silent = false;
 
 void print(const char *msg, size_t size, const char *color) {
 	printf("%s", color);
@@ -24,7 +25,9 @@ int on_message(ducq_i *ducq, char *msg, size_t size, void *ctx) {
 	return 0;
 }
 int on_protocol(ducq_i *ducq, char *msg, size_t size, void *ctx) {
-	print(msg, size, FG_LITE_BLACK);
+	if(! silent) {
+		print(msg, size, FG_LITE_BLACK);
+	}
 	return 0;
 }
 int on_nack(ducq_i *ducq, char *msg, size_t size, void *ctx) {
@@ -47,11 +50,12 @@ int initialize(struct client_config *config, struct ducq_listen_ctx *ctx){
 	ctx->on_error    = on_error;
 	ctx->ctx         = NULL;
 
+	silent = config->silent;
+
 	const char **argv = config->argv;
 	while( *(++argv) ) {
 	     if(strcmp(*argv, "--time")    == 0 || strcmp(*argv, "-t") == 0) {
 		     with_time = true;
-		     break;
 	     }
 	}
 

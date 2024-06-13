@@ -22,6 +22,7 @@
 
 // global: used in signal handler
 jmp_buf quit;
+bool silent = false;
 log_f logfunc 	= NULL;
 void *logger	= NULL;
 #define LOGD(fmt, ...) logfunc(logger, DUCQ_LOG_DEBUG,   fmt ,##__VA_ARGS__)
@@ -56,20 +57,20 @@ void exit_print_help() {
 void signal_handler(int sig) {
 	switch(sig) {
 		case SIGTERM:
-			LOGI("received SIGTERM");
+			LOGD("received SIGTERM");
 			longjmp(quit, -1);
 			break;
 		case SIGINT :
-			LOGI("received SIGINT");
+			LOGD("received SIGINT");
 			longjmp(quit, -1);
 			break;
 		case  SIGQUIT:
-			LOGI("received SIGQUIT");
-			LOGI("becoming daemon");
+			LOGD("received SIGQUIT");
+			LOGD("becoming daemon");
 			if( daemon(0, 0) )
 				LOGE("daemon() failed: %s\n", strerror(errno));
 			else
-				LOGI("became daemon", getpid());
+				LOGD("became daemon", getpid());
 			break;
 	}
 };
@@ -98,8 +99,8 @@ void log_error(const char *msg, ducq_state state) {
 } while(false)
 
 ducq_i *emit(struct client_config *conf, struct ducq_listen_ctx *client) {
-	LOGI("%s:%s",       conf->host,    conf->port);
-	LOGI("'%s %s\n%s'", conf->command, conf->route, conf->payload);
+	LOGD("%s:%s",       conf->host,    conf->port);
+	LOGD("'%s %s\n%s'", conf->command, conf->route, conf->payload);
 
 	ducq_i *ducq = ducq_new_tcp(conf->host, conf->port);
 	if(!ducq) {
@@ -110,9 +111,9 @@ ducq_i *emit(struct client_config *conf, struct ducq_listen_ctx *client) {
 	int try = 0;
 	do {
 		try++;
-		LOGI("connection try #%d.", try);
+		LOGD("connection try #%d.", try);
 		if(try > 1) {
-			LOGI("backing of %d seconds...", try * 5);
+			LOGW("backing of %d seconds...", try * 5);
 			sleep(try * 5);
 		}
 
@@ -124,7 +125,7 @@ ducq_i *emit(struct client_config *conf, struct ducq_listen_ctx *client) {
 			conf->payload, strlen(conf->payload)
 		) );
 
-		LOGI("listening");
+		LOGD("listening");
 		ducq_state state = ducq_listen(ducq, client);
 		if(state < DUCQ_ERROR)
 			break;
@@ -133,7 +134,7 @@ ducq_i *emit(struct client_config *conf, struct ducq_listen_ctx *client) {
 end:
 	} while(try < 3);
 
-	LOGI("done after try #%d.", try);
+	LOGD("done after try #%d.", try);
 	return ducq;
 }
 
@@ -184,16 +185,22 @@ void get_config(int argc, char const *argv[], struct client_config *c) {
 			c->route = *(++argv);
 		else if(strcmp(*argv, "--payload") == 0 || strcmp(*argv, "-l") == 0)
 			c->payload = *(++argv);
+		else if(strcmp(*argv, "--silent") == 0 || strcmp(*argv, "-s") == 0)
+			c->silent = true;
 	}
 }
 
 
 
 int default_log(void *ctx, enum ducq_log_level level,  const char *fmt, ...) {
+	if (level == DUCQ_LOG_DEBUG && silent) {
+		return 0;
+	}
+
 	FILE *file = (FILE*) ctx;
 
-	fprintf(file, "pid %d: ", getpid());
-	fprintf(file, "[%s]", ducq_level_tostr(level));
+	fprintf(file, "pid %d ", getpid());
+	fprintf(file, "[%s] ", ducq_level_tostr(level));
 
 	va_list args;
 	va_start(args, fmt);
@@ -220,6 +227,7 @@ int main(int argc, char const *argv[]) {
 
 	logfunc = conf.log    ? conf.log    : default_log;
 	logger  = conf.logger ? conf.logger : stdout;
+	silent  = conf.silent;
 
 	if( setjmp(quit) )
 		goto done;
@@ -230,7 +238,7 @@ int main(int argc, char const *argv[]) {
 done:
 	ducq_close(ducq);
 	ducq_free(ducq);
-	LOGI("finalizing...");
+	LOGD("finalizing...");
 	finalize(client.ctx);
 	// don't call LOGx functions past finalize().
 	return 0;

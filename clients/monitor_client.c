@@ -5,9 +5,14 @@
 #include <ducq_log.h>		// uses
 #include "../ducq_client.h" 	// implements
 
+static bool silent = false;
 
 int on_message(ducq_i *ducq, char *msg, size_t size, void *ctx) {
-	     if(strncmp("debug",  msg, 5) == 0) printf(FG_LITE_BLACK);
+	if(strncmp("debug", msg, 5) == 0) {
+		if (silent)
+			return 0;
+		printf(FG_LITE_BLACK);
+	}
 	else if(strncmp("info",   msg, 4) == 0) printf(FG_NORMAL);
 	else if(strncmp("warn",   msg, 4) == 0) printf(FG_DARK_YELLOW);
 	else if(strncmp("error",  msg, 5) == 0) printf(FG_LITE_RED);
@@ -18,6 +23,8 @@ int on_message(ducq_i *ducq, char *msg, size_t size, void *ctx) {
 	return 0;
 }
 int on_protocol(ducq_i *ducq, char *msg, size_t size, void *ctx) {
+	if (silent)
+		return 0;
 	printf(FG_DARK_GREEN);
 	printf("%.*s\n", (int)size, msg);
 	printf(FG_NORMAL);
@@ -50,6 +57,8 @@ int initialize(struct client_config *config, struct ducq_listen_ctx *ctx){
 	ctx->on_nack     = on_nack;
 	ctx->on_error    = on_error;
 	ctx->ctx         = NULL;
+
+	silent = config->silent;
 
 	return 0;
 }
