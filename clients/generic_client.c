@@ -7,8 +7,9 @@
 
 static bool with_time = false;
 static bool silent = false;
+static bool isInParts = false;
 
-void print(const char *msg, size_t size, const char *color) {
+void print(char *msg, size_t size, const char *color) {
 	printf("%s", color);
 
 	if(with_time) {
@@ -16,7 +17,15 @@ void print(const char *msg, size_t size, const char *color) {
 		ducq_getnow(now, sizeof(now));
 		printf("\n%s\n", now);
 	}
-	printf("%.*s\n", (int)size, msg);
+
+
+	if (isInParts) {
+		printf("%.*s", (int)size, msg);
+	} else {
+		struct ducq_msg m = ducq_parse_msg(msg);
+		printf("%s %s %s\n", m.command, m.route, m.payload);
+	}
+
 	printf(FG_NORMAL);
 }
 
@@ -25,19 +34,40 @@ int on_message(ducq_i *ducq, char *msg, size_t size, void *ctx) {
 	return 0;
 }
 int on_protocol(ducq_i *ducq, char *msg, size_t size, void *ctx) {
+	if (strcmp(msg, "PARTS") == 0) {
+		isInParts = true;
+	}
+
 	if(! silent) {
 		print(msg, size, FG_LITE_BLACK);
+		printf("\n");
 	}
+
+	if (strcmp(msg, "END") == 0) {
+		isInParts = false;
+		return -1;
+	}
+
 	return 0;
 }
 int on_nack(ducq_i *ducq, char *msg, size_t size, void *ctx) {
+	isInParts = false;
 	print(msg, size, FG_LITE_YELLOW);
 	return -1;
 }
 int on_error(ducq_i *ducq, ducq_state state, void *ctx) {
-	const char *msg = ducq_state_tostr(state);
-	size_t size = strlen(msg);
-	print(msg, size, FG_LITE_RED);
+	isInParts = false;
+	printf(FG_LITE_RED);
+
+	if(with_time) {
+		char now[DUCQ_TIMESTAMP_SIZE] = "";
+		ducq_getnow(now, sizeof(now));
+		printf("\n%s\n", now);
+	}
+
+	printf("%s\n", ducq_state_tostr(state) );
+
+	printf(FG_NORMAL);
 	return  -1;  
 }
 
