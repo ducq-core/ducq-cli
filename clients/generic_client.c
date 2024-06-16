@@ -6,8 +6,9 @@
 #include "../ducq_client.h" 	// implements
 
 static bool with_time = false;
-static bool silent = false;
+static bool isSilent = false;
 static bool isInParts = false;
+static bool isSubscriber = false;
 
 void print(char *msg, size_t size, const char *color) {
 	printf("%s", color);
@@ -38,12 +39,13 @@ int on_protocol(ducq_i *ducq, char *msg, size_t size, void *ctx) {
 		isInParts = true;
 	}
 
-	if(! silent) {
+	if(! isSilent) {
 		print(msg, size, FG_LITE_BLACK);
 		printf("\n");
 	}
 
-	if (strcmp(msg, "END") == 0) {
+	if (strcmp(msg, "END") == 0
+	|| (strcmp(msg, "ACK") == 0 && !isSubscriber) ) {
 		isInParts = false;
 		return -1;
 	}
@@ -80,7 +82,8 @@ int initialize(struct client_config *config, struct ducq_listen_ctx *ctx){
 	ctx->on_error    = on_error;
 	ctx->ctx         = NULL;
 
-	silent = config->silent;
+	isSilent = config->silent;
+	isSubscriber = strncmp(config->command, "sub", 3) == 0;
 
 	const char **argv = config->argv;
 	while( *(++argv) ) {
