@@ -166,7 +166,7 @@ void get_config(int argc, char const *argv[], struct client_config *c) {
 			c->host = host;
 		}
 		if( lua_getglobal(L, "port") == LUA_TSTRING ) {
-			strncpy(port, lua_tostring(L, -1), 256);
+			strncpy(port, lua_tostring(L, -1),   6);
 			port[5] = '\0';
 			c->port = port;
 		}
