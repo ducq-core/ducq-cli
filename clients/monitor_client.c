@@ -49,7 +49,7 @@ int on_error(ducq_i *ducq, ducq_state state, void *ctx) {
 }
 
 int initialize(struct client_config *config, struct ducq_listen_ctx *ctx){
-	config->command = "subscribe";
+	config->command = "sub";
 	config->route   = DUCQ_LOG_ROUTE;
 
 	ctx->on_message  = on_message;

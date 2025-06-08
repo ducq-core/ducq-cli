@@ -44,7 +44,7 @@ void exit_print_help() {
 	error_quit(
 		"ducq \n"
 		"    -h,  --host       server host address (default: localhost )\n"
-		"    -p,  --port       server port         (default: 9090 )\n"
+		"    -p,  --port       server port         (default: 59090 )\n"
 		"    -c,  --command    mandatory. use 'list_commands' to get servers's available commands.\n"
 		"    -r,  --route      route to publish to (default: '*')\n"
 		"    -l,  --payload    payload to be sent  (default: '\\0' )\n"
@@ -147,7 +147,7 @@ void get_config(int argc, char const *argv[], struct client_config *c) {
 
 	// defaults
 	c->host    = "localhost";
-	c->port    = "9090";
+	c->port    = "59090";
 	c->command = "lscmd";
 	c->route   = "*";
 	c->payload = "";
