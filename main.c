@@ -21,6 +21,7 @@
 
 
 // global: used in signal handler
+ducq_i *ducq	= NULL;
 jmp_buf quit;
 bool silent = false;
 log_f logfunc 	= NULL;
@@ -98,11 +99,11 @@ void log_error(const char *msg, ducq_state state) {
 	} \
 } while(false)
 
-ducq_i *emit(struct client_config *conf, struct ducq_listen_ctx *client) {
+void emit(struct client_config *conf, struct ducq_listen_ctx *client) {
 	LOGD("%s:%s",       conf->host,    conf->port);
 	LOGD("'%s %s\n%s'", conf->command, conf->route, conf->payload);
 
-	ducq_i *ducq = ducq_new_tcp(conf->host, conf->port);
+	ducq = ducq_new_tcp(conf->host, conf->port);
 	if(!ducq) {
 		LOGE("ducq_new_tcp() failed (errno: %s).", strerror(errno));
 		longjmp(quit, -1);
@@ -135,7 +136,6 @@ end:
 	} while(try < 3);
 
 	LOGD("done after try #%d.", try);
-	return ducq;
 }
 
 
@@ -233,7 +233,7 @@ int main(int argc, char const *argv[]) {
 		goto done;
 	set_signals();
 
-	ducq_i *ducq = emit(&conf, &client);
+	emit(&conf, &client);
 
 done:
 	ducq_close(ducq);
