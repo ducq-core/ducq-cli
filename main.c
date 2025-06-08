@@ -148,7 +148,7 @@ void get_config(int argc, char const *argv[], struct client_config *c) {
 	// defaults
 	c->host    = "localhost";
 	c->port    = "9090";
-	c->command = "list_commands";
+	c->command = "lscmd";
 	c->route   = "*";
 	c->payload = "";
 
